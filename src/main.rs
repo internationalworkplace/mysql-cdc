@@ -1,20 +1,38 @@
-pub mod events;
+extern crate notify;
 
-use crate::events::InsertEvent;
+use notify::{raw_watcher, RawEvent, RecursiveMode, Watcher};
+use std::{sync::mpsc::channel, time::Duration};
 
-use mysql_binlog::parse_file;
+fn main() {
+    // Create a channel to receive the events.
+    let (tx, rx) = channel();
 
-fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let args: Vec<String> = std::env::args().collect();
-    if args.len() != 2 {
-        eprintln!("Usage: {} /path/to/binlog/file", args[0]);
-        std::process::exit(2);
-    }
+    // Create a watcher object, delivering raw events.
+    // The notification back-end is selected based on the platform.
+    let mut watcher = raw_watcher(tx).unwrap();
 
-    for event in parse_file(&args[1])? {
-        if let Ok(event) = event {
-            InsertEvent::process(&event);
+    // Add a path to be watched. All files and directories at that path and
+    // below will be monitored for changes.
+    watcher
+        .watch(
+            "/Users/nate/Library/Application Support/com.tinyapp.DBngin/Engines/mysql/F3E67C2D-C5E7-4419-8C7A-FF988C512453/binlog.000001",
+            RecursiveMode::Recursive,
+        )
+        .unwrap();
+
+    std::thread::spawn(move || match rx.recv() {
+        Ok(RawEvent {
+            path: Some(path),
+            op: Ok(op),
+            cookie,
+        }) => {
+            println!("{:?} {:?} ({:?})", op, path, cookie)
         }
+        Ok(event) => println!("broken event: {:?}", event),
+        Err(e) => println!("watch error: {:?}", e),
+    });
+
+    loop {
+        std::thread::sleep(Duration::from_secs(1));
     }
-    Ok(())
 }
