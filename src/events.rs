@@ -8,8 +8,8 @@ pub struct InsertEvent {
 impl InsertEvent {
     pub fn process(event: &BinlogEvent) {
         // Specify the database and table you're interested in
-        let target_database: Option<String> = Some("test_one".to_string());
-        let target_table: Option<String> = Some("amazing_table".to_string());
+        let target_database: Option<String> = Some("staging_lrs".to_string());
+        let target_table: Option<String> = Some("lrs_statement".to_string());
 
         if event.type_code == TypeCode::WriteRowsEventV1
             || event.type_code == TypeCode::WriteRowsEventV2
