@@ -7,12 +7,6 @@ use std::{path::Path, sync::mpsc::channel};
 use mysql_binlog::parse_file;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let args: Vec<String> = std::env::args().collect();
-    if args.len() != 2 {
-        eprintln!("Usage: {} /path/to/binlog/file", args[0]);
-        std::process::exit(2);
-    }
-
     // Create a channel to receive the events.
     let (tx, rx) = channel();
 
@@ -22,7 +16,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Add a path to be watched. All files and directories at that path and
     // below will be monitored for changes.
-    if let Err(err) = watcher.watch(Path::new(&args[1]), RecursiveMode::Recursive) {
+    if let Err(err) = watcher.watch(
+        Path::new(&"HARD_CODED_PATH_TO_BINLOG_FILE"),
+        RecursiveMode::Recursive,
+    ) {
         println!("watcher error {}", err);
     }
 
@@ -34,10 +31,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 println!("path: {:?}", data.paths[0]);
                 for event in parse_file(&data.paths[0])? {
                     if let Ok(event) = event {
+                        print!("event type code: {:?}", event.type_code);
                         InsertEvent::process(&event);
                     }
                 }
-            },
+            }
             Err(e) => println!("watch error: {:?}", e),
         }
     }

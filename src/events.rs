@@ -15,7 +15,11 @@ impl InsertEvent {
             || event.type_code == TypeCode::WriteRowsEventV2
         {
             if event.schema_name == target_database && event.table_name == target_table {
-                println!("{:?}\n", event.rows);
+                // TODO: Implement the logic to process the event...
+                println!("Event rows: {:?}\n", event.rows);
+                // event.rows.iter().for_each(|row| {
+                //     println!("{:?}", row);
+                // });
             }
         }
     }
