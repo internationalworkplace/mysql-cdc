@@ -1,12 +1,26 @@
-pub mod events;
+mod events;
+mod statements;
 
 use crate::events::InsertEvent;
+use dotenv::dotenv;
+use mysql_binlog::event::TypeCode;
+use mysql_binlog::{parse_file, BinlogEvent};
 use notify::{recommended_watcher, RecursiveMode, Watcher};
+use rusqlite::Connection;
+use statements::{create_table_and_insert_record, get_last_processed_id, update_last_processed_id};
 use std::{path::Path, sync::mpsc::channel};
 
-use mysql_binlog::parse_file;
-
 fn main() -> Result<(), Box<dyn std::error::Error>> {
+    dotenv().ok();
+    let bin_path = std::env::var("BIN_LOG_PATH").expect("BIN_LOG_PATH must be set.");
+    let target_database = std::env::var("TARGET_DATABASE").expect("TARGET_DATABASE must be set.");
+    let target_table = std::env::var("TARGET_TABLE").expect("TARGET_TABLE must be set.");
+
+    // Create SQLite connection
+    let conn = Connection::open("sqlite.db")?;
+    // Create table if not exists
+    create_table_and_insert_record(&conn)?;
+
     // Create a channel to receive the events.
     let (tx, rx) = channel();
 
@@ -16,27 +30,73 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Add a path to be watched. All files and directories at that path and
     // below will be monitored for changes.
-    if let Err(err) = watcher.watch(
-        Path::new(&"HARD_CODED_PATH_TO_BINLOG_FILE"),
-        RecursiveMode::Recursive,
-    ) {
+    if let Err(err) = watcher.watch(Path::new(bin_path.as_str()), RecursiveMode::Recursive) {
         println!("watcher error {}", err);
     }
-
     loop {
         match rx.recv() {
             Ok(event) => {
                 let data = event.unwrap();
-                println!("event: {:?}", data.kind);
-                println!("path: {:?}", data.paths[0]);
-                for event in parse_file(&data.paths[0])? {
-                    if let Ok(event) = event {
-                        print!("event type code: {:?}", event.type_code);
-                        InsertEvent::process(&event);
+                let last_processed_id = get_last_processed_id(&conn)?;
+
+                let target_database: Option<String> = Some(target_database.to_string());
+                let target_table: Option<String> = Some(target_table.to_string());
+
+                println!("Last processed ID {:?}", last_processed_id);
+                for (index, event_result) in parse_file(&data.paths[0])?.enumerate() {
+                    match event_result {
+                        Ok(event) => {
+                            if event.type_code == TypeCode::WriteRowsEventV1
+                                || event.type_code == TypeCode::WriteRowsEventV2
+                                    && (event.schema_name == target_database
+                                        && event.table_name == target_table)
+                            {
+                                println!("Event {}: {:?} : {:?}", index, event, last_processed_id);
+                                // Extract the ID column from the event
+                                if let Some(id) = extract_id(&event) {
+                                    // Check if the event ID is greater than the last processed ID
+                                    if let Some(last_id) = last_processed_id {
+                                        if id <= last_id {
+                                            println!(
+                                                "Skipping already processed event with ID {}",
+                                                id
+                                            );
+                                            continue;
+                                        }
+                                    }
+
+                                    //Process the event with the extracted ID
+                                    let _ = InsertEvent::process(&event);
+
+                                    //Update the last processed ID
+                                    if let Err(err) = update_last_processed_id(&conn, id) {
+                                        println!("Error updating last processed ID: {:?}", err);
+                                    }
+                                }
+                            }
+                        }
+                        Err(e) => println!("Error parsing event {}: {:?}", index, e),
                     }
                 }
             }
             Err(e) => println!("watch error: {:?}", e),
         }
     }
+}
+
+// Function to extract the ID column from the event
+fn extract_id(event: &BinlogEvent) -> Option<i64> {
+    for row in &event.rows {
+        if let Some(cols) = row.cols() {
+            if let Some(id_value) = cols.get(0) {
+                if let Some(id) = match id_value {
+                    Some(mysql_binlog::value::MySQLValue::SignedInteger(value)) => Some(*value),
+                    _ => None,
+                } {
+                    return Some(id);
+                }
+            }
+        }
+    }
+    None
 }
