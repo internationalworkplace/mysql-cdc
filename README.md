@@ -34,6 +34,8 @@ brew install gcc
 brew install mingw-w64
 ```
 
+You will also need to install [Perl](https://www.activestate.com/products/perl/).
+
 2. Environment variables
 
 ```
