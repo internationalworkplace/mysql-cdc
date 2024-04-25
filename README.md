@@ -22,6 +22,35 @@ To get started with the MySQL CDC Binlog Parser, follow these steps:
 1. Clone the repository: `git clone https://github.com/your-username/mysql-cdc.git`
 2. Build the project: `cargo run`
 3. Run the binlog parser: `target/debug/mysql-cdc data/bin.000001`
+   
+## Building for Windows
+
+1. Requirements
+
+```
+brew install openssl
+brew install cmake
+brew install gcc
+brew install mingw-w64
+```
+
+2. Environment variables
+
+```
+export OPENSSL_ROOT_DIR=/opt/homebrew/Cellar/openssl@3/3.3.0
+export OPENSSL_INCLUDE_DIR=/opt/homebrew/Cellar/openssl@3/3.3.0/include
+export OPENSSL_LIB_DIR=/opt/homebrew/Cellar/openssl@3/3.3.0/lib
+
+export LDFLAGS="-L/opt/homebrew/Cellar/openssl@3/3.3.0/lib"
+export CPPFLAGS="-I/opt/homebrew/Cellar/openssl@3/3.3.0/include"
+export PKG_CONFIG_PATH="/opt/homebrew/Cellar/openssl@3/3.3.0/lib/pkgconfig"
+```
+
+3. Compiling
+
+```
+cargo build --target x86_64-pc-windows-gnu --release
+```
 
 ## Usage
 
