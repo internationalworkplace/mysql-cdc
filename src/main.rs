@@ -15,6 +15,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let bin_path = std::env::var("BIN_LOG_PATH").expect("BIN_LOG_PATH must be set.");
     let target_database = std::env::var("TARGET_DATABASE").expect("TARGET_DATABASE must be set.");
     let target_table = std::env::var("TARGET_TABLE").expect("TARGET_TABLE must be set.");
+    let sync_cutoff_unix_timestamp = std::env::var("SYNC_CUTOFF_TIMESTAMP_UNIX").unwrap_or("0".to_string()).parse::<i32>().unwrap_or(0);
 
     // Create SQLite connection
     let conn = Connection::open("sqlite.db")?;
@@ -43,6 +44,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 let target_table: Option<String> = Some(target_table.to_string());
 
                 println!("Last processed ID {:?}", last_processed_id);
+                println!("sync_cutoff_unix_timestamp {:?}", sync_cutoff_unix_timestamp);
+
                 for (index, event_result) in parse_file(&data.paths[0])?.enumerate() {
                     match event_result {
                         Ok(event) => {
@@ -50,6 +53,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                                 || event.type_code == TypeCode::WriteRowsEventV2
                                     && (event.schema_name == target_database
                                         && event.table_name == target_table)
+                                    && event.timestamp > sync_cutoff_unix_timestamp.try_into().unwrap()
                             {
                                 println!("Event {}: {:?} : {:?}", index, event, last_processed_id);
                                 // Extract the ID column from the event

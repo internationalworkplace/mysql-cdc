@@ -11,14 +11,23 @@ pub fn create_table_and_insert_record(conn: &Connection) -> Result<()> {
         [],
     )?;
 
-    // Insert a record with last_processed_id as 0
-    conn.execute(
+    // Check if any row exists in the table
+    let row_count: i64 = conn.query_row(
         "
-        INSERT INTO synced_statements (last_processed_id) VALUES (0)
+        SELECT COUNT(*) FROM synced_statements
         ",
         [],
+        |row| row.get(0),
     )?;
 
+    if row_count == 0 {
+        conn.execute(
+            "
+            INSERT INTO synced_statements (last_processed_id) VALUES (0)
+            ",
+            [],
+        )?;
+    }
     Ok(())
 }
 
