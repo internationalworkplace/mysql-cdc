@@ -1,4 +1,4 @@
-use mysql_binlog::BinlogEvent;
+use mysql_binlog::{event::RowEvent, BinlogEvent};
 use rdkafka::{
     producer::{FutureProducer, FutureRecord},
     ClientConfig,
@@ -12,13 +12,13 @@ impl InsertEvent {
     pub fn process(event: &BinlogEvent) -> Result<(), Box<dyn Error>> {
         for _row in &event.rows {
             let producer = Self::get_producer();
-            let _ = tokio::runtime::Runtime::new()?.block_on(Self::produce(&producer, &event));
+            let _ = tokio::runtime::Runtime::new()?.block_on(Self::produce(&producer, &event.rows));
         }
 
         Ok(())
     }
 
-    async fn produce(producer: &FutureProducer, event: &BinlogEvent) -> Result<(), Box<dyn Error>> {
+    async fn produce(producer: &FutureProducer, event: &Vec<RowEvent>) -> Result<(), Box<dyn Error>> {
         let kafka_topic = std::env::var("KAFKA_TOPIC").expect("KAFKA_TOPIC must be set.");
         let topic_string = kafka_topic.to_string();
 
