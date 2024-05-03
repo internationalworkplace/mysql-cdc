@@ -55,6 +55,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                                 && is_event_after_cutoff(&event, sync_cutoff_unix_timestamp)
                             {
                                 println!("Event {}: {:?} : {:?}", index, event, last_processed_id);
+
+                                // TODO: Need to make the SQLite DB store the last timestamp for every specified table individually.
                                 // Extract the ID column from the event
                                 if let Some(id) = extract_id(&event) {
                                     // Check if the event ID is greater than the last processed ID
@@ -109,6 +111,10 @@ fn matches_target_type_and_table(event: &BinlogEvent, target_databases: &[&str],
         if let Some(_table) = event.table_name.as_deref() {
             let schema = event.schema_name.as_deref().unwrap();
             let table = event.table_name.as_deref().unwrap();
+
+            if schema == "staging_analytics" {
+                return false;
+            }
 
             return (event.type_code == TypeCode::WriteRowsEventV1 || event.type_code == TypeCode::WriteRowsEventV2)
                 && (target_databases.contains(&schema) && target_tables.contains(&table))

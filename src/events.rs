@@ -21,7 +21,7 @@ impl InsertEvent {
             // Call the appropriate mapping function based on the schema
             let json_data = match schema_and_table.as_str() {
                 "staging_lrs_lrs_statement" => Self::map_staging_lrs_lrs_statements(_row),
-                "staging_lms_user_details" => Self::map_staging_lms_user_details(_row),
+                // "staging_lms_user_details" => Self::map_staging_lms_user_details(_row),
                 // Add more schemas as needed
                 _ => {
                     // Handle case when no mapping function is found
@@ -31,9 +31,13 @@ impl InsertEvent {
             };
 
             // Convert JSON data to string
+            let mut json_wrapper = json!({});
             let json_string = serde_json::to_string(&json_data)?;
+            json_wrapper["database"] = database.into();
+            json_wrapper["table"] = table.into();
+            json_wrapper["row"] = serde_json::from_str(&json_string).unwrap();
 
-            let _ = tokio::runtime::Runtime::new()?.block_on(Self::produce(&producer, json_string));
+            let _ = tokio::runtime::Runtime::new()?.block_on(Self::produce(&producer, json_wrapper.to_string()));
         }
 
         Ok(())
@@ -50,7 +54,7 @@ impl InsertEvent {
             .key(&topic_string);
         match producer.send(data, std::time::Duration::from_secs(0)).await {
             Ok(_) => {
-                println!("Message successfully sent to Kafka");
+                println!("Message successfully sent to Kafka topic: {:?}", kafka_topic);
                 Ok(())
             }
             Err(e) => {
@@ -96,16 +100,6 @@ impl InsertEvent {
             "stored_on".to_string(),
             "authority_id".to_string(),
             "version".to_string()
-        ];
-        
-        return Self::process_row_event(row_event, column_names);
-    }
-
-    fn map_staging_lms_user_details(row_event: &RowEvent) -> Value {
-        // Has to be in the exact order of the row values.
-
-        let column_names = vec![
-            "user_id".to_string(),
         ];
         
         return Self::process_row_event(row_event, column_names);
