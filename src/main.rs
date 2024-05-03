@@ -13,8 +13,9 @@ use std::{path::Path, sync::mpsc::channel};
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     dotenv().ok();
     let bin_path = std::env::var("BIN_LOG_PATH").expect("BIN_LOG_PATH must be set.");
-    let target_database = std::env::var("TARGET_DATABASE").expect("TARGET_DATABASE must be set.");
-    let target_table = std::env::var("TARGET_TABLE").expect("TARGET_TABLE must be set.");
+    let database_list = std::env::var("TARGET_DATABASES").expect("TARGET_DATABASES must be set.");
+    let table_list = std::env::var("TARGET_TABLES").expect("TARGET_TABLES must be set.");
+
     let sync_cutoff_unix_timestamp = std::env::var("SYNC_CUTOFF_TIMESTAMP_UNIX").unwrap_or("0".to_string()).parse::<i32>().unwrap_or(0);
 
     // Create SQLite connection
@@ -40,8 +41,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 let data = event.unwrap();
                 let last_processed_id = get_last_processed_id(&conn)?;
 
-                let target_database: Option<String> = Some(target_database.to_string());
-                let target_table: Option<String> = Some(target_table.to_string());
+                let target_databases: Vec<&str> = database_list.split(',').map(|s| s.trim()).collect();
+                let target_tables: Vec<&str> = table_list.split(',').map(|s| s.trim()).collect();
 
                 println!("Last processed ID {:?}", last_processed_id);
                 println!("sync_cutoff_unix_timestamp {:?}", sync_cutoff_unix_timestamp);
@@ -49,11 +50,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 for (index, event_result) in parse_file(&data.paths[0])?.enumerate() {
                     match event_result {
                         Ok(event) => {
-                            if event.type_code == TypeCode::WriteRowsEventV1
-                                || event.type_code == TypeCode::WriteRowsEventV2
-                                    && (event.schema_name == target_database
-                                        && event.table_name == target_table)
-                                    && event.timestamp > sync_cutoff_unix_timestamp.try_into().unwrap()
+                            if 
+                                matches_target_type_and_table(&event, &target_databases, &target_tables)
+                                && is_event_after_cutoff(&event, sync_cutoff_unix_timestamp)
                             {
                                 println!("Event {}: {:?} : {:?}", index, event, last_processed_id);
                                 // Extract the ID column from the event
@@ -103,4 +102,21 @@ fn extract_id(event: &BinlogEvent) -> Option<i64> {
         }
     }
     None
+}
+
+fn matches_target_type_and_table(event: &BinlogEvent, target_databases: &[&str], target_tables: &[&str]) -> bool {
+    if let Some(_schema) = event.schema_name.as_deref() {
+        if let Some(_table) = event.table_name.as_deref() {
+            let schema = event.schema_name.as_deref().unwrap();
+            let table = event.table_name.as_deref().unwrap();
+
+            return (event.type_code == TypeCode::WriteRowsEventV1 || event.type_code == TypeCode::WriteRowsEventV2)
+                && (target_databases.contains(&schema) && target_tables.contains(&table))
+        }
+    }
+    false
+}
+
+fn is_event_after_cutoff(event: &BinlogEvent, sync_cutoff_unix_timestamp: i32) -> bool {
+    return event.timestamp > sync_cutoff_unix_timestamp.try_into().unwrap()
 }

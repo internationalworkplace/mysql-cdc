@@ -1,8 +1,9 @@
-use mysql_binlog::{event::RowEvent, BinlogEvent};
+use mysql_binlog::{event::RowEvent, value::MySQLValue, BinlogEvent};
 use rdkafka::{
     producer::{FutureProducer, FutureRecord},
     ClientConfig,
 };
+use serde_json::{json, Value};
 use std::error::Error;
 
 //
@@ -10,15 +11,35 @@ pub struct InsertEvent;
 
 impl InsertEvent {
     pub fn process(event: &BinlogEvent) -> Result<(), Box<dyn Error>> {
+        let producer = Self::get_producer();
+        let database = event.schema_name.as_ref().map(|s| s.as_str()).unwrap_or_default();
+        let table = event.table_name.as_ref().map(|s| s.as_str()).unwrap_or_default();
+
+        // Concatenate database name and table name
+        let schema_and_table = format!("{}_{}", database, table);
         for _row in &event.rows {
-            let producer = Self::get_producer();
-            let _ = tokio::runtime::Runtime::new()?.block_on(Self::produce(&producer, &event.rows));
+            // Call the appropriate mapping function based on the schema
+            let json_data = match schema_and_table.as_str() {
+                "staging_lrs_lrs_statement" => Self::map_staging_lrs_lrs_statements(_row),
+                "staging_lms_user_details" => Self::map_staging_lms_user_details(_row),
+                // Add more schemas as needed
+                _ => {
+                    // Handle case when no mapping function is found
+                    println!("No mapping function found for schema and table: {}", schema_and_table);
+                    continue;
+                }
+            };
+
+            // Convert JSON data to string
+            let json_string = serde_json::to_string(&json_data)?;
+
+            let _ = tokio::runtime::Runtime::new()?.block_on(Self::produce(&producer, json_string));
         }
 
         Ok(())
     }
 
-    async fn produce(producer: &FutureProducer, event: &Vec<RowEvent>) -> Result<(), Box<dyn Error>> {
+    async fn produce(producer: &FutureProducer, event: String) -> Result<(), Box<dyn Error>> {
         let kafka_topic = std::env::var("KAFKA_TOPIC").expect("KAFKA_TOPIC must be set.");
         let topic_string = kafka_topic.to_string();
 
@@ -58,5 +79,64 @@ impl InsertEvent {
             .create()
             .expect("Failed to create producer");
         producer
+    }
+    
+    fn map_staging_lrs_lrs_statements(row_event: &RowEvent) -> Value {
+        // Has to be in the exact order of the row values.
+        let column_names = vec![
+            "id".to_string(),
+            "uuid".to_string(),
+            "parent_id".to_string(),
+            "actor_id".to_string(),
+            "verb_id".to_string(),
+            "target_id".to_string(),
+            "result_id".to_string(),
+            "context_id".to_string(),
+            "timestamp".to_string(),
+            "stored_on".to_string(),
+            "authority_id".to_string(),
+            "version".to_string()
+        ];
+        
+        return Self::process_row_event(row_event, column_names);
+    }
+
+    fn map_staging_lms_user_details(row_event: &RowEvent) -> Value {
+        // Has to be in the exact order of the row values.
+
+        let column_names = vec![
+            "user_id".to_string(),
+        ];
+        
+        return Self::process_row_event(row_event, column_names);
+    }
+
+    fn process_row_event(row_event: &RowEvent, column_names: Vec<String>) -> Value {
+        if let RowEvent::NewRow { cols } = row_event {
+            let mut json_data = json!({});
+    
+            for (column_index, column_value) in cols.iter().enumerate() {
+                if let Some(column_name) = column_names.get(column_index) {
+                    // Convert column value to JSON value
+                    let value = match column_value {
+                        Some(MySQLValue::SignedInteger(val)) => json!(val),
+                        Some(MySQLValue::Float(val)) => json!(val),
+                        Some(MySQLValue::Double(val)) => json!(val),
+                        Some(MySQLValue::String(val)) => json!(val),
+                        Some(MySQLValue::Enum(val)) => json!(val),
+                        // Handle other variants as needed
+                        _ => json!(null), // Handle null values or unsupported types
+                    };
+    
+                    // Add column and value to JSON object
+                    json_data[column_name] = value;
+                }
+            }
+    
+            return json_data;
+        }
+    
+        // Handle other variants or return a default JSON value if needed
+        json!({})
     }
 }
